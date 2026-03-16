@@ -1,0 +1,19 @@
+# RISC-V Assembler Lab build artifacts
+riscv-assembler-lab/*.o
+riscv-assembler-lab/assembler
+riscv-assembler-lab/test_*
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# Logs
+*.log
