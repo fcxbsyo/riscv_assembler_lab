@@ -1,204 +1,24 @@
-# RISC-V Assembler Lab
+# Test Report — RISC-V Assembler Lab 8-4
 
-A two-pass assembler for a subset of the RV32I instruction set, written in C.  
-Takes a `.s` assembly source file and produces a `.hex` machine code output file.
+## How to verify against Venus
 
----
+1. Open https://venus.cs61c.org
+2. Paste the `.s` source into the **Editor** tab
+3. Click **Assemble**
+4. Go to **Simulator** tab → open **Memory** panel
+5. Compare hex words at `0x00000000` onward with the `.hex` file line by line
 
-## Supported instructions
+> **Note for test_case_3.s:** Go to Settings → Memory Configuration → select **"Compact, Data at Address 0"** before assembling.
 
-| Format            | Instructions                                                   |
-| ----------------- | -------------------------------------------------------------- |
-| R-type arithmetic | `add` `sub` `and` `or` `xor` `sll` `srl` `sra` `slt` `sltu`    |
-| I-type arithmetic | `addi` `andi` `ori` `xori` `slli` `srli` `srai` `slti` `sltiu` |
-| Loads             | `lb` `lbu` `lh` `lhu` `lw`                                     |
-| Stores            | `sb` `sh` `sw`                                                 |
-| Branches          | `beq` `bne` `blt` `bge` `bltu` `bgeu`                          |
-| Jumps             | `jal` `jalr`                                                   |
+All three test cases were verified this way. Every word matched.
 
 ---
 
-## Project structure
+## Test Case 1 — `examples/test_case_1.s`
 
-```
-riscv-assembler-lab/
-├── Makefile
-├── README.md
-├── src/
-│   ├── main.c              # CLI entry point
-│   ├── assembler.c / .h    # Two-pass pipeline coordinator
-│   ├── parser.c / .h       # Line tokeniser (label, mnemonic, operands)
-│   ├── registers.c / .h    # Register name → number (x0–x31 + ABI names)
-│   ├── instr_table.c / .h  # Instruction metadata table (opcode, funct3, funct7)
-│   ├── symbols.c / .h      # Label symbol table (add, find, duplicate detection)
-│   └── encode.c / .h       # Bit-field packers for R / I / S / B / U / J formats
-├── tests/
-│   ├── test_registers.c
-│   ├── test_parser.c
-│   ├── test_instr_table.c
-│   ├── test_symbols.c
-│   ├── test_encode.c
-│   └── test_assembler.c
-└── examples/
-    ├── test_case_1.s        # 22 instructions — arithmetic, memory, branches
-    ├── test_case_1.hex
-    ├── test_case_2.s        # 52 instructions — bubble sort + bitwise checks
-    ├── test_case_2.hex
-    ├── test_case_3.s        # 108 instructions — Fibonacci, GCD, checksum, shifts
-    ├── test_case_3.hex
-    └── test_report.md       # Venus simulator vs assembler comparison
-```
+**22 instructions.** Computes sum of 1..10 iteratively, stores and reloads the result, checks correctness with a branch, exercises every load/store width (`lw`, `lh`, `lb`, `sw`, `sh`, `sb`) and every bitwise/comparison R-type (`xor`, `slt`, `sltu`, `and`, `or`).
 
----
-
-## Build
-
-```bash
-# Build the assembler binary
-make assembler
-
-# Run all 6 unit test suites (77 tests total)
-make test
-
-# Assemble all three example programs
-make examples
-
-# Clean all build artifacts
-make clean
-```
-
----
-
-## Usage
-
-```bash
-./assembler <input.s> [output.hex]
-```
-
-- `input.s` — path to the RISC-V assembly source file
-- `output.hex` — optional output path. If omitted, written to `<input>.hex`
-
-**Example:**
-
-```bash
-./assembler examples/test_case_1.s
-cat examples/test_case_1.hex
-```
-
----
-
-## Assembly syntax supported
-
-```asm
-# Comments start with #
-# Labels end with :
-# Register names: x0–x31 or ABI names (zero, ra, sp, a0–a7, etc.)
-
-        addi  x1, x0, 10       # I-type: rd, rs1, immediate
-        add   x3, x1, x2       # R-type: rd, rs1, rs2
-        lw    x4, 8(x2)        # Load:   rd, imm(rs1)
-        sw    x5, 0(x2)        # Store:  rs2, imm(rs1)
-loop:
-        bne   x1, x0, loop     # Branch: rs1, rs2, label
-        jal   x0, done         # Jump:   rd, label
-done:
-```
-
----
-
-## Module responsibilities
-
-| Module          | Responsibility                                   |
-| --------------- | ------------------------------------------------ |
-| `main.c`        | Parse CLI arguments, call `assemble_file()`      |
-| `assembler.c`   | Coordinate the two-pass pipeline                 |
-| `parser.c`      | Break each line into label / mnemonic / operands |
-| `registers.c`   | Convert register names to numbers 0–31           |
-| `instr_table.c` | Look up opcode, funct3, funct7 by mnemonic       |
-| `symbols.c`     | Store and resolve label addresses                |
-| `encode.c`      | Pack fields into 32-bit machine words            |
-
----
-
-## Two-pass algorithm
-
-### Pass 1 — Build symbol table
-
-```
-PC = 0
-for each line:
-    if line has a label → symbols_add(label, PC)
-    if line has an instruction → PC += 4
-```
-
-### Pass 2 — Encode instructions
-
-```
-PC = 0
-for each line:
-    parse_line()
-    lookup_instr(mnemonic)
-    resolve registers via parse_register()
-    for branches/jumps: offset = symbols_find(label) - PC
-    call encode_r / encode_i / encode_s / encode_b / encode_j
-    write 32-bit word to output file
-    PC += 4
-```
-
----
-
-## Instruction encoding formats
-
-```
-R-type: [ funct7 | rs2 | rs1 | funct3 | rd  | opcode ]
-         31    25  24 20  19 15  14  12  11  7   6    0
-
-I-type: [ imm[11:0]      | rs1 | funct3 | rd  | opcode ]
-         31          20   19 15  14  12  11  7   6    0
-
-S-type: [ imm[11:5] | rs2 | rs1 | funct3 | imm[4:0] | opcode ]
-
-B-type: [ imm[12|10:5] | rs2 | rs1 | funct3 | imm[4:1|11] | opcode ]
-
-J-type: [ imm[20|10:1|11|19:12] | rd | opcode ]
-```
-
----
-
-## Unit test results
-
-```
-test_registers    17/17  ✅
-test_parser       14/14  ✅
-test_instr_table  17/17  ✅
-test_symbols      10/10  ✅
-test_encode        9/9   ✅
-test_assembler    10/10  ✅
-──────────────────────────
-Total             77/77  ✅
-```
-
----
-
-## Venus verification report
-
-All three test cases verified against [Venus RISC-V Simulator](https://venus.cs61c.org).  
-Procedure: paste `.s` into Venus Editor → Assemble → compare Memory dump with `.hex` file.
-
-> **Note for test_case_3.s:** Settings → Memory Configuration → **"Compact, Data at Address 0"**
-
-### Summary
-
-| Test case       | Instructions | Words matched | Result          |
-| --------------- | ------------ | ------------- | --------------- |
-| `test_case_1.s` | 22           | 22/22         | ✅ PASS         |
-| `test_case_2.s` | 52           | 52/52         | ✅ PASS         |
-| `test_case_3.s` | 108          | 108/108       | ✅ PASS         |
-| **Total**       | **182**      | **182/182**   | ✅ **ALL PASS** |
-
-### Test Case 1 — 22 instructions
-
-| PC       | Instruction      | Our assembler | Venus      | Match |
+| PC (hex) | Instruction      | Our assembler | Venus      | Match |
 | -------- | ---------------- | ------------- | ---------- | ----- |
 | 00000000 | addi x2, x0, 200 | `0C800113`    | `0C800113` | ✅    |
 | 00000004 | addi x1, x0, 10  | `00A00093`    | `00A00093` | ✅    |
@@ -223,11 +43,15 @@ Procedure: paste `.s` into Venus Editor → Assemble → compare Memory dump wit
 | 00000050 | sb x6, 8(x2)     | `00610423`    | `00610423` | ✅    |
 | 00000054 | lb x13, 8(x2)    | `00810683`    | `00810683` | ✅    |
 
-**22/22 ✅**
+**Result: 22/22 words match ✅**
 
-### Test Case 2 — 52 instructions
+---
 
-| PC       | Instruction          | Our assembler | Venus      | Match |
+## Test Case 2 — `examples/test_case_2.s`
+
+**52 instructions.** Initialises an 8-element array (values 8..1), bubble-sorts with `bge`/`blt`, performs a linear search for value 5, then exercises `slli`, `srli`, `srai`, `andi`, `ori`, `xori`, `slti`, `sltiu`.
+
+| PC (hex) | Instruction          | Our assembler | Venus      | Match |
 | -------- | -------------------- | ------------- | ---------- | ----- |
 | 00000000 | addi x2, x0, 400     | `19000113`    | `19000113` | ✅    |
 | 00000004 | addi x1, x0, 8       | `00800093`    | `00800093` | ✅    |
@@ -282,9 +106,15 @@ Procedure: paste `.s` into Venus Editor → Assemble → compare Memory dump wit
 | 000000C8 | sub x29, x25, x26    | `41AC8EB3`    | `41AC8EB3` | ✅    |
 | 000000CC | xor x30, x21, x27    | `01BACF33`    | `01BACF33` | ✅    |
 
-**52/52 ✅**
+**Result: 52/52 words match ✅**
 
-### Test Case 3 — 108 instructions
+---
+
+## Test Case 3 — `examples/test_case_3.s`
+
+**108 instructions** across four sections: Fibonacci(10)=55, GCD(48,18)=6, byte checksum (1+2+...+8=36), shift/bitwise cross-checks including `slli`/`srli`/`srai`, `andi`/`ori`/`xori`, `slt`/`sltu`/`slti`/`sltiu`, and a final `jalr`.
+
+Full word-by-word dump verified against Venus (16 March 2026):
 
 | Line | Our assembler | Venus      | Match |
 | ---- | ------------- | ---------- | ----- |
@@ -397,12 +227,28 @@ Procedure: paste `.s` into Venus Editor → Assemble → compare Memory dump wit
 | 107  | `00098067`    | `00098067` | ✅    |
 | 108  | `0000006F`    | `0000006F` | ✅    |
 
-**108/108 ✅**
+**Result: 108/108 words match ✅**
 
 ---
 
-## References
+## Summary
 
-- RISC-V ISA Specification — [riscv.org](https://riscv.org/technical/specifications/)
-- CS61C RISC-V Reference Card
-- Venus RISC-V Simulator — [venus.cs61c.org](https://venus.cs61c.org)
+| Test case       | Instructions | Words matched | Result          |
+| --------------- | ------------ | ------------- | --------------- |
+| `test_case_1.s` | 22           | 22/22         | ✅ PASS         |
+| `test_case_2.s` | 52           | 52/52         | ✅ PASS         |
+| `test_case_3.s` | 108          | 108/108       | ✅ PASS         |
+| **Total**       | **182**      | **182/182**   | ✅ **ALL PASS** |
+
+### Instruction formats exercised
+
+| Format  | Instructions verified                                          |
+| ------- | -------------------------------------------------------------- |
+| R-type  | `add` `sub` `and` `or` `xor` `sll` `srl` `sra` `slt` `sltu`    |
+| I-arith | `addi` `andi` `ori` `xori` `slli` `srli` `srai` `slti` `sltiu` |
+| I-load  | `lb` `lbu` `lh` `lhu` `lw`                                     |
+| S-type  | `sb` `sh` `sw`                                                 |
+| B-type  | `beq` `bne` `blt` `bge` `bltu` `bgeu`                          |
+| J-type  | `jal` `jalr`                                                   |
+
+Every instruction format (R, I, S, B, J) and every instruction required by the lab specification was assembled and verified.
